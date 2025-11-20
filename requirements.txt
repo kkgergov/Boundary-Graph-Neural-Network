@@ -1,0 +1,12 @@
+tensorflow-cpu
+pandas
+h5py
+scikit-learn
+graph-nets
+ipython
+vtk
+GitPython
+POT
+pymp-pypi
+dm-sonnet
+jupyter
