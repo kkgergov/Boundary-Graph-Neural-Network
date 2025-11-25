@@ -21,7 +21,7 @@ def convert_stl_to_csv_connectivity(stl_filename, output_csv_filename):
     connectivity_df.to_csv(output_csv_filename, index=False)
     print(f"Converted {stl_filename} to {output_csv_filename} with connectivity information.")
 
-def extract_particle_data(filename):
+def extract_particle_data(filename, output_npz_filename):
     # Read the CSV file into a DataFrame
     df = pd.concat(read_large_csv_in_chunks(filename))
     
@@ -64,7 +64,7 @@ def extract_particle_data(filename):
         radiusData[pid_idx] = radius
 
     # Create the final output dictionary
-    output = {
+    particleCoord_Data = {
         "xData": xData,
         "idData": idData,
         "typeData": typeData,
@@ -73,7 +73,7 @@ def extract_particle_data(filename):
     }
 
     # Save it to file
-    np.savez_compressed("data/02-preprocessed/particleData_0.npz", **output)
+    np.savez_compressed(output_npz_filename, particleCoord_Data=particleCoord_Data)
 
     return
 
@@ -119,9 +119,11 @@ def extract_triangles(vertices_files, connectivity_files, output_npz_filename):
 # Convert particle npz data to vtp files for visualization for every timestep
 def convert_particle_npz_to_vtp(npz_filename, output_vtp_prefix):
     # Load your data
-    data = np.load(npz_filename)
-    xData = data['xData']  # Shape: (n_timesteps, n_particles, 3)
-    radiusData = data['radiusData']  # Shape: (n_particles,)
+    data = np.load(npz_filename, allow_pickle=True)
+    particleCoord_Data = data['particleCoord_Data'].item()
+
+    xData = particleCoord_Data["xData"]
+    radiusData = particleCoord_Data["radiusData"]
 
     n_timesteps, n_particles, _ = xData.shape
 
@@ -153,7 +155,6 @@ def convert_particle_npz_to_vtp(npz_filename, output_vtp_prefix):
         print(f"Saved {filename} with radius data")
 
     print("Conversion complete!")
-
 
 # Convert wall npz data to vtp files for visualization
 def convert_triangle_npz_to_vtp(npz_filename, output_vtp_prefix):
@@ -217,9 +218,9 @@ if __name__ == "__main__":
     # extract_triangles(vertices_files, connectivity_files, "data/02-preprocessed/wallData_0.npz")
 
     # STEP 2: Extract particle data from raw CSV
-    # extract_particle_data("data//01-raw//run_0_particles.csv")
+    # extract_particle_data("data//01-raw//run_0_particles.csv", "data/02-preprocessed/particleData_0.npz")
 
     # STEP OPTIONAL: Convert extracted npz data to vtp files for visualization
-    # convert_particle_npz_to_vtp("data/02-preprocessed/particleData_0.npz", "data/02-preprocessed/particle-visualization/particles_0")
-    convert_triangle_npz_to_vtp("data/02-preprocessed/wallData_0.npz", "data/02-preprocessed/wall-visualization/walls_0")
+    # convert_triangle_npz_to_vtp("data/02-preprocessed/wallData_0.npz", "data/02-preprocessed/wall-visualization/walls_0")
+    convert_particle_npz_to_vtp("data/02-preprocessed/particleData_0.npz", "data/02-preprocessed/particle-visualization/particles_0")
 
