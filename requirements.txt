@@ -10,3 +10,5 @@ POT
 pymp-pypi
 dm-sonnet
 jupyter
+pyvista
+trimesh
