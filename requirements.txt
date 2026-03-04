@@ -1,0 +1,11 @@
+numpy
+scipy
+rtree
+wheel
+torch
+torch_scatter
+torch_geometric
+trimesh
+matplotlib
+pyvista
+pymeshfix
