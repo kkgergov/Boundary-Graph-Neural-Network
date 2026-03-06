@@ -36,7 +36,7 @@ EPSILON = 1e-6 # For safe division during normalization
 
 def SDF_static(points, target_mesh):
     """Calculates signed distance from points to a static mesh."""
-    return -trimesh.proximity.signed_distance(target_mesh, points)
+    return trimesh.proximity.signed_distance(target_mesh, points)
 
 # def SDF_normal_direct(point, target_mesh):
 #     """Calculates the surface normal at the closest point on the mesh."""

@@ -50,7 +50,7 @@ INITIAL_LR = 1e-4
 FINAL_LR = 1e-6
 # HUBER_BETA = 2.0
 # LOSS_ALPHA = 3 # Weight for node loss
-VELOCITY_NOISE_STD = 0.002 # Noise added during training # Prev 0.005
+VELOCITY_NOISE_STD = 0.0002 # Noise added during training # Prev 0.005
 RESUME_TRAINING = True # Flag to resume from checkpoint
 
 # Other constants

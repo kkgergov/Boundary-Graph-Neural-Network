@@ -293,7 +293,7 @@ def extract_data(deck, start_timestep, last_timestep):
         # ])
         # wall_rotational_speed = 300.0  # placeholder value
         # wall_com = np.array(deck.timestep[t].geometry['First try jar'].getCoM())
-        wall_rotational_speed = 40 # rpm
+        wall_rotational_speed = 3.1415926535 # radians
         wall_com = [0.44, 0.44, 0.0]
         wall_node_features = np.concatenate([wall_com, np.array([wall_rotational_speed])])
         snapshot["wall_node_features"] = wall_node_features
