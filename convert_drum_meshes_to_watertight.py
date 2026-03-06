@@ -88,7 +88,7 @@ def visualize_sdf_gradients_2d(mesh_path = "./data-drum/0-raw/merged_meshes.stl"
     axes[1, 1].quiver(X, Y, U, V, color='black', scale=50)
     axes[1, 1].set_title('SDF + Gradients')
     
-    plt.show()
+    plt.savefig('sdf_drum.png', dpi=300)
     
     return sdf_grid, grad_x_norm, grad_y_norm
 
@@ -96,7 +96,7 @@ def visualize_sdf_gradients_2d(mesh_path = "./data-drum/0-raw/merged_meshes.stl"
 # Example usage
 if __name__ == "__main__":
     # Create Watertight mesh
-    # convert_to_watertight()
+    convert_to_watertight()
 
     # Visualize SDF gradients
     visualize_sdf_gradients_2d()

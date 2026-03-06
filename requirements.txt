@@ -8,4 +8,3 @@ torch_geometric
 trimesh
 matplotlib
 pyvista
-pymeshfix

@@ -34,7 +34,7 @@ mesh_static = trimesh.load("./data-drum/0-raw/merged_meshes.stl")
 ###############################################
 
 def SDF_static(points, target_mesh):
-    return -trimesh.proximity.signed_distance(target_mesh, points)
+    return trimesh.proximity.signed_distance(target_mesh, points)
 
 def SDF_normal_direct(point, target_mesh):
     closest, distance, face_index = target_mesh.nearest.on_surface(point.reshape(1, 3))
@@ -96,8 +96,8 @@ def SDF_gradient_direct_vectorized(points, target_mesh, epsilon=1e-5):
         d = np.zeros((N, 3))
         d[:, i] = epsilon
         
-        sdf_plus = -trimesh.proximity.signed_distance(target_mesh, points + d)
-        sdf_minus = -trimesh.proximity.signed_distance(target_mesh, points - d)
+        sdf_plus = trimesh.proximity.signed_distance(target_mesh, points + d)
+        sdf_minus = trimesh.proximity.signed_distance(target_mesh, points - d)
         
         grad[:, i] = (sdf_plus - sdf_minus) / (2 * epsilon)
     
@@ -121,7 +121,7 @@ def SDF_gradient_direct_vectorized(points, target_mesh, epsilon=1e-5):
 #     return SDF_static(x, moved_mesh)
 
 # timestep_size = 0.01, rad_s = 1.0472 old
-def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 4.188790204666667, axis = [0, 0, 1], center=[0.44, 0.44, 0.0]):
+def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535, axis = [0, 0, 1], center=[0.44, 0.44, 0.0]):
     
     rotated_mesh = mesh_static.copy()
 
@@ -170,9 +170,8 @@ def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 4.1887902046
 with open("./data-drum/1-staging/rocky_deck.pkl", "rb") as f:
     deck = pickle.load(f)
 
-start_timestep = 0
+start_timestep = 1000
 last_timestep  = deck.n_timesteps - 1
-total_timesteps = deck.n_timesteps
 
 ###############################################
 # --- 5. Extract Data from Simulation Snapshots --- #
