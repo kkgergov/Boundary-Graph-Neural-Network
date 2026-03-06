@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pickle
 
@@ -172,8 +174,12 @@ class RockyDeck:
 
         pass
 
-deck = RockyDeck("./data-drum/0-raw/contacts.npz", "./data-drum/0-raw/particles.npz")
+# Create the deck and save it as a pickle file if it doesn't exist yet
+if os.path.exists("./data-drum/1-staging/rocky_deck.pkl"):
+    print("Rocky deck already exists, skipping creation.")
+else:
+    deck = RockyDeck("./data-drum/0-raw/contacts.npz", "./data-drum/0-raw/particles.npz")
 
-# save the deck as pkl file
-with open("./data-drum/1-staging/rocky_deck.pkl", "wb") as f:
-    pickle.dump(deck, f)
+    # save the deck as pkl file
+    with open("./data-drum/1-staging/rocky_deck.pkl", "wb") as f:
+        pickle.dump(deck, f)
