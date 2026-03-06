@@ -152,8 +152,9 @@ class RockyDeck:
                 contact_vectors_t.append(contact_vector)
             contact_vectors.append( np.array(contact_vectors_t) )
 
+        
         self.pp_contact_vectors = contact_vectors
-        self.pp_relative_dist = [np.empty((0,))] + [ np.linalg.norm(self.pp_contact_vectors[t], axis=1) for t in range(1, self.n_timesteps) ] # account for empty at t=0
+        self.pp_relative_dist = [ np.linalg.norm(self.pp_contact_vectors[t], axis=1) if self.pp_contact_vectors[t].shape[0] > 0 else np.array([]) for t in range(self.n_timesteps) ]
         self.pp_dist_vector = [ self.pp_contact_vectors[t] * 2.0 for t in range(0, self.n_timesteps) ]
 
         pass
@@ -178,6 +179,7 @@ class RockyDeck:
 if os.path.exists("./data-drum/1-staging/rocky_deck.pkl"):
     print("Rocky deck already exists, skipping creation.")
 else:
+    print("Creating rocky deck from raw data...")
     deck = RockyDeck("./data-drum/0-raw/contacts.npz", "./data-drum/0-raw/particles.npz")
 
     # save the deck as pkl file
