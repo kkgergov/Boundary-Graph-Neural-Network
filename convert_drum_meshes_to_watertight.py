@@ -42,7 +42,7 @@ def visualize_sdf_gradients_2d(mesh_path = "./data-drum/0-raw/merged_meshes.stl"
                              np.full(xx.ravel().shape, z_slice)])
     
     # Compute SDF values
-    sdf_values = -mesh.nearest.signed_distance(points)
+    sdf_values = mesh.nearest.signed_distance(points)
     sdf_grid = sdf_values.reshape(xx.shape)
     
     # Compute gradients using normals
