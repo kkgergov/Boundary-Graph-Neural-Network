@@ -62,6 +62,10 @@ def visualize_sdf_gradients_2d(mesh_path = "./data-drum/0-raw/merged_meshes.stl"
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
     
     # 1. SDF values
+
+    # Print smallest and biggest SDF values for debugging
+    print(f"SDF min: {sdf_values.min()}, SDF max: {sdf_values.max()}")
+
     im1 = axes[0, 0].imshow(sdf_grid, cmap='coolwarm', 
                            extent=[x.min(), x.max(), y.min(), y.max()])
     axes[0, 0].set_title('SDF Values')
