@@ -26,7 +26,7 @@ MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 DT = 0.01 # Must be 10x the DEM it was trained on for good results (according to paper [1])
 TOTAL_SIM_TIME = 10 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
-RPM = 40 # Wall rotational speed (used for wall features)
+RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
 # Model Hyperparameters (Must match the trained model!)
 WINDOW_SIZE = 4 # Must match the window size used during training
@@ -46,10 +46,10 @@ USE_LAST_SNAPSHOT_GLOBAL = False
 # Bigger values wont decrease the quality of the surrogate model, but will increase computation time
 
 PARTICLE_DIAMETER = 0.030 # meters
-CONTACT_THRESHOLD_PP = PARTICLE_DIAMETER * 1.5 # Particle-particle contact distance threshold
-CONTACT_THRESHOLD_PW_SDF = -0.0145 # Particle-wall contact SDF threshold
-PENETRATION_THRESHOLD_CORRECTION = -0.005 # SDF threshold for applying acceleration correction
-PENETRATION_THRESHOLD_SNAPBACK = -0.015 # SDF threshold for applying snap-back projection
+CONTACT_THRESHOLD_PP = 0.021526 # Particle-particle contact distance threshold
+CONTACT_THRESHOLD_PW_SDF = 0.014976 # Particle-wall contact SDF threshold
+PENETRATION_THRESHOLD_CORRECTION = None # SDF threshold for applying acceleration correction (not used currently)
+PENETRATION_THRESHOLD_SNAPBACK = 0.010 # SDF threshold for applying snap-back projection
 ACCELERATION_CORRECTION_SCALE = 0.0 # Factor for acceleration correction (0 = off)
 VELOCITY_DAMPING_FACTOR = 1.0 # Factor for velocity damping upon contact (1 = off)
 
@@ -261,7 +261,7 @@ def compute_contacts_vectorized(positions, sdf_values, particle_ids, threshold_p
     else:
         contact_pairs_pp = np.empty((0, 2), dtype=int)
         distance_vectors_pp = np.empty((0, 3), dtype=float)
-    contact_ids_pw = particle_ids[sdf_values.flatten() >= sdf_threshold]
+    contact_ids_pw = particle_ids[sdf_values.flatten() <= sdf_threshold]
     return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
 
 def euler_integration(prev_state, linear_acc, dt):
@@ -288,8 +288,8 @@ def SDF_gradient_vectorized(points, target_mesh, epsilon=1e-5):
         d = np.zeros(dim); d[i] = epsilon
         points_plus = points + d
         points_minus = points - d
-        sdf_plus = -trimesh.proximity.signed_distance(target_mesh, points_plus)
-        sdf_minus = -trimesh.proximity.signed_distance(target_mesh, points_minus)
+        sdf_plus = trimesh.proximity.signed_distance(target_mesh, points_plus)
+        sdf_minus = trimesh.proximity.signed_distance(target_mesh, points_minus)
         grad[:, i] = (sdf_plus - sdf_minus) / (2 * epsilon)
     return grad
 
@@ -506,7 +506,7 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
 
         current_positions = new_particle_state["particle"]["positions"]
         sdf_vals_next = data_utils.SDF_static(current_positions, moved_mesh_next)
-        snapback_mask = sdf_vals_next > PENETRATION_THRESHOLD_SNAPBACK
+        snapback_mask = sdf_vals_next < PENETRATION_THRESHOLD_SNAPBACK
         if np.any(snapback_mask):
             positions_to_correct = current_positions[snapback_mask]
             grads_snapback = SDF_gradient_vectorized(positions_to_correct, moved_mesh_next)
@@ -517,7 +517,7 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
                  sdf_vals_to_correct = sdf_vals_next[snapback_mask][valid_grad_mask_sb]
                  normal_dirs = grads_snapback[valid_grad_mask_sb] / grad_norms[valid_grad_mask_sb] # Use normalized finite diff gradient
                  correction_distances = sdf_vals_to_correct - PENETRATION_THRESHOLD_SNAPBACK
-                 pos_corrected = positions_to_correct_valid - correction_distances[:, np.newaxis] * normal_dirs
+                 pos_corrected = positions_to_correct_valid + correction_distances[:, np.newaxis] * normal_dirs
                  indices_to_snapback = np.where(snapback_mask)[0][valid_grad_mask_sb]
                  new_particle_state["particle"]["positions"][indices_to_snapback] = pos_corrected
 
