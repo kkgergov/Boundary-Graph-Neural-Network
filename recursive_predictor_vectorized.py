@@ -264,38 +264,19 @@ def compute_contacts_vectorized(positions, sdf_values, particle_ids, threshold_p
     contact_ids_pw = particle_ids[sdf_values.flatten() <= sdf_threshold]
     return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
 
-# Uniform Grid / Binning method for computing contacts
-# Divide space into cubic cells with side length ≥ threshold_pp. Particles only need to be compared with particles in the same cell or adjacent cells.
-# This method can reduce complexity to O(N) for uniform distributions, but has overhead from grid management
-# and may not perform well for highly non-uniform distributions or small thresholds.
-
-def compute_contacts_uniform_grid(positions, sdf_values, particle_ids, threshold_pp, sdf_threshold):
-    """Computes particle-particle and particle-wall contacts using a uniform grid spatial partitioning method."""
-    cell_size = threshold_pp
-    min_coords = positions.min(axis=0)
-    max_coords = positions.max(axis=0)
-    grid_size = np.ceil((max_coords - min_coords) / cell_size).astype(int)
-    grid = {}
-    for idx, pos in enumerate(positions):
-        cell_idx = tuple(((pos - min_coords) / cell_size).astype(int))
-        if cell_idx not in grid: grid[cell_idx] = []
-        grid[cell_idx].append(idx)
-    contact_pairs_pp = []
-    distance_vectors_pp = []
-    for cell_idx, indices in grid.items():
-        neighbor_cells = [(cell_idx[0] + dx, cell_idx[1] + dy, cell_idx[2] + dz) for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)]
-        for i in indices:
-            for neighbor_cell in neighbor_cells:
-                if neighbor_cell in grid:
-                    for j in grid[neighbor_cell]:
-                        if i < j:
-                            vec = positions[j] - positions[i]
-                            dist = np.linalg.norm(vec)
-                            if dist <= threshold_pp:
-                                contact_pairs_pp.append([particle_ids[i], particle_ids[j]])
-                                distance_vectors_pp.append(vec)
-    if contact_pairs_pp: contact_pairs_pp = np.array(contact_pairs_pp); distance_vectors_pp = np.array(distance_vectors_pp)
-    else: contact_pairs_pp = np.empty((0, 2), dtype=int); distance_vectors_pp = np.empty((0, 3), dtype=float)
+# The number of particles is not that big but there are a lot of timesteps, approach using KDtree may be suitable
+def compute_contacts_KDTree(positions, sdf_values, particle_ids, threshold_pp, sdf_threshold):
+    """Computes particle-particle and particle-wall contacts based on thresholds using KDTree for efficiency."""
+    from scipy.spatial import cKDTree
+    N = positions.shape[0]
+    if N > 1:
+        tree = cKDTree(positions)
+        pairs = tree.query_pairs(r=threshold_pp)
+        contact_pairs_pp = np.array([[particle_ids[i], particle_ids[j]] for i, j in pairs])
+        distance_vectors_pp = np.array([positions[j] - positions[i] for i, j in pairs])
+    else:
+        contact_pairs_pp = np.empty((0, 2), dtype=int)
+        distance_vectors_pp = np.empty((0, 3), dtype=float)
     contact_ids_pw = particle_ids[sdf_values.flatten() <= sdf_threshold]
     return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
 
@@ -372,8 +353,8 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
     #     threshold_pp=CONTACT_THRESHOLD_PP, sdf_threshold=CONTACT_THRESHOLD_PW_SDF
     # )
 
-    # --- Uniform Grid version ---
-    contacts_pp, contacts_pw = compute_contacts_uniform_grid(
+    # --- KDTree Grid version ---
+    contacts_pp, contacts_pw = compute_contacts_KDTree(
         positions, sdf_vals, particle_ids,
         threshold_pp=CONTACT_THRESHOLD_PP, sdf_threshold=CONTACT_THRESHOLD_PW_SDF
     )
