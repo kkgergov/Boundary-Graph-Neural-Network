@@ -331,10 +331,15 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
     sdf_gradients = SDF_gradient_vectorized(positions, moved_mesh)
 
     norms = np.linalg.norm(sdf_gradients, axis=1, keepdims=True)
-    # if norms value is nan change it to 1
-    norms = np.where(np.isnan(norms), 1.0, norms)
 
-    normalized_gradients = np.where(norms < data_utils.EPSILON, sdf_gradients, sdf_gradients / norms)
+    # Try catch block to handle potential issues with zero gradients (Runtime Warnings)
+    try:
+        normalized_gradients = np.where(norms < data_utils.EPSILON, sdf_gradients, sdf_gradients / norms)
+    except RuntimeWarning:
+        print("Warning: Division by zero or other numerical issues encountered.")
+        print(f"Norms: {norms.flatten()}")
+        normalized_gradients = np.where(norms < data_utils.EPSILON, sdf_gradients, sdf_gradients / norms)
+
     sdf_distance_vectors = sdf_vals * normalized_gradients
 
     new_snapshot["particle"]["sdf_values"] = sdf_vals
