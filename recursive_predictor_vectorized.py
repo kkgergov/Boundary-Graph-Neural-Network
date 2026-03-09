@@ -23,8 +23,8 @@ NORM_PARAMS_FILE = "./data-drum/2-pre-process/normalization_params.pkl" # From t
 MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 
 # Simulation Parameters
-DT = 0.01 # Must be 10x the DEM it was trained on for good results (according to paper [1])
-TOTAL_SIM_TIME = 10 # Restored simulation time
+DT = 0.003 # Must be 10x the DEM it was trained on for good results (according to paper [1])
+TOTAL_SIM_TIME = 4 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
@@ -215,7 +215,7 @@ except Exception as e:
 #         # print(f"Error during spline evaluation at time {query_time}: {e}. Returning fallback CoM.")
 #         return fallback_com
 
-def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 4.188790204666667, axis = [0, 0, 1], center=[0.44, 0.44, 0.0]):
+def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535, axis = [0, 0, 1], center=[0.44, 0.44, 0.0]):
     
     rotated_mesh = mesh_static.copy()
 
