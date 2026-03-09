@@ -23,8 +23,8 @@ NORM_PARAMS_FILE = "./data-drum/2-pre-process/normalization_params.pkl" # From t
 MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 
 # Simulation Parameters
-DT = 0.003 # Must be 10x the DEM it was trained on for good results (according to paper [1])
-TOTAL_SIM_TIME = 4 # Restored simulation time
+DT = 0.001 # Must be 10x the DEM it was trained on for good results (according to paper [1])
+TOTAL_SIM_TIME = 5 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
