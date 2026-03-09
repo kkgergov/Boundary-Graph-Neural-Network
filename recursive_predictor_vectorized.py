@@ -23,16 +23,16 @@ NORM_PARAMS_FILE = "./data-drum/2-pre-process/normalization_params.pkl" # From t
 MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 
 # Simulation Parameters
-DT = 0.001 # Must be 10x the DEM it was trained on for good results (according to paper [1])
+DT = 0.004 # Must be 10x the DEM it was trained on for good results (according to paper [1])
 TOTAL_SIM_TIME = 5 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
-# Model Hyperparameters (Must match the trained model!)
-WINDOW_SIZE = 4 # Must match the window size used during training
-HIDDEN_DIM = 64
-MLP_LAYERS = 3
-INTERACTION_LAYERS = 6
+# Model hyperparameters
+WINDOW_SIZE = 5
+HIDDEN_DIM = 128
+MLP_LAYERS = 2
+INTERACTION_LAYERS = 10
 NODE_OUT_DIM = 3
 GLOBAL_OUT_DIM = 1
 EDGE_IN_DIM = 3 # Based on distance_vector and sdf_distance_vectors being 3D
