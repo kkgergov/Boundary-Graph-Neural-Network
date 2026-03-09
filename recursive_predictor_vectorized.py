@@ -29,7 +29,7 @@ INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
 # Model Hyperparameters (Must match the trained model!)
-WINDOW_SIZE = 10 # Must match the window size used during training
+WINDOW_SIZE = 4 # Must match the window size used during training
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
 INTERACTION_LAYERS = 6
