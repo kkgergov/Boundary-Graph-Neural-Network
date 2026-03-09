@@ -31,7 +31,7 @@ CHECKPOINT_PATH = "sgn_checkpoint_modular.pth"
 BEST_MODEL_PATH = "best_model_modular.pth"
 
 # Model hyperparameters
-WINDOW_SIZE = 4 # prev 7
+WINDOW_SIZE = 10 # prev 7
 HIDDEN_DIM = 64 # prev 128
 MLP_LAYERS = 3 # prev 4
 INTERACTION_LAYERS = 6 # prev 10

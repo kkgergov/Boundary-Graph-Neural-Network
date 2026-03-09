@@ -29,7 +29,7 @@ INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
 # Model Hyperparameters (Must match the trained model!)
-WINDOW_SIZE = 4 # Must match the window size used during training
+WINDOW_SIZE = 10 # Must match the window size used during training
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
 INTERACTION_LAYERS = 6
@@ -331,15 +331,7 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
     sdf_gradients = SDF_gradient_vectorized(positions, moved_mesh)
 
     norms = np.linalg.norm(sdf_gradients, axis=1, keepdims=True)
-
-    # Try catch block to handle potential issues with zero gradients (Runtime Warnings)
-    try:
-        normalized_gradients = np.where(norms < data_utils.EPSILON, sdf_gradients, sdf_gradients / norms)
-    except RuntimeWarning:
-        print("Warning: Division by zero or other numerical issues encountered.")
-        print(f"Norms: {norms.flatten()}")
-        normalized_gradients = np.where(norms < data_utils.EPSILON, sdf_gradients, sdf_gradients / norms)
-
+    normalized_gradients = np.where(norms < data_utils.EPSILON, sdf_gradients, sdf_gradients / norms)
     sdf_distance_vectors = sdf_vals * normalized_gradients
 
     new_snapshot["particle"]["sdf_values"] = sdf_vals
