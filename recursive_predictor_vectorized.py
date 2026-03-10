@@ -23,13 +23,13 @@ NORM_PARAMS_FILE = "./data-drum/2-pre-process/normalization_params.pkl" # From t
 MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 
 # Simulation Parameters
-DT = 0.004 # Must be 10x the DEM it was trained on for good results (according to paper [1])
-TOTAL_SIM_TIME = 5 # Restored simulation time
+DT = 0.002 # Must be 10x the DEM it was trained on for good results (according to paper [1])
+TOTAL_SIM_TIME = 1.5 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
-# Model hyperparameters
-WINDOW_SIZE = 5
+# Model Hyperparameters (Must match the trained model!)
+WINDOW_SIZE = 5 # Must match the window size used during training
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
 INTERACTION_LAYERS = 6
@@ -48,7 +48,7 @@ USE_LAST_SNAPSHOT_GLOBAL = False
 PARTICLE_DIAMETER = 0.030 # meters
 CONTACT_THRESHOLD_PP = 0.021526 # Particle-particle contact distance threshold
 CONTACT_THRESHOLD_PW_SDF = 0.014976 # Particle-wall contact SDF threshold
-PENETRATION_THRESHOLD_CORRECTION = None # SDF threshold for applying acceleration correction (not used currently)
+PENETRATION_THRESHOLD_CORRECTION = 0.011 # SDF threshold for applying acceleration correction
 PENETRATION_THRESHOLD_SNAPBACK = 0.010 # SDF threshold for applying snap-back projection
 ACCELERATION_CORRECTION_SCALE = 0.0 # Factor for acceleration correction (0 = off)
 VELOCITY_DAMPING_FACTOR = 1.0 # Factor for velocity damping upon contact (1 = off)
@@ -233,7 +233,6 @@ def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535
 
     return rotated_mesh
 
-# Basic Method
 def compute_contacts(positions, sdf_values, particle_ids, threshold_pp, sdf_threshold):
     """Computes particle-particle and particle-wall contacts based on thresholds (O(N^2) version)."""
     N = positions.shape[0]; contact_pairs_pp = []; distance_vectors_pp = []
@@ -243,40 +242,6 @@ def compute_contacts(positions, sdf_values, particle_ids, threshold_pp, sdf_thre
             if dist <= threshold_pp: contact_pairs_pp.append([particle_ids[i], particle_ids[j]]); distance_vectors_pp.append(vec)
     if contact_pairs_pp: contact_pairs_pp = np.array(contact_pairs_pp); distance_vectors_pp = np.array(distance_vectors_pp)
     else: contact_pairs_pp = np.empty((0, 2), dtype=int); distance_vectors_pp = np.empty((0, 3), dtype=float)
-    contact_ids_pw = particle_ids[sdf_values.flatten() >= sdf_threshold]
-    return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
-
-# Vectorized Method, still N^2 but with better performance due to numpy optimizations and avoiding Python loops.
-# Note that for very large N, more advanced spatial data structures would be needed for efficiency.
-def compute_contacts_vectorized(positions, sdf_values, particle_ids, threshold_pp, sdf_threshold):
-    """Computes particle-particle and particle-wall contacts based on thresholds (Vectorized version)."""
-    N = positions.shape[0]
-    if N > 1:
-        diff = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]
-        dist_matrix = np.linalg.norm(diff, axis=-1)
-        i_indices, j_indices = np.triu_indices(N, k=1)
-        valid_contacts_mask = dist_matrix[i_indices, j_indices] <= threshold_pp
-        contact_pairs_pp = np.column_stack((particle_ids[i_indices[valid_contacts_mask]], particle_ids[j_indices[valid_contacts_mask]]))
-        distance_vectors_pp = diff[i_indices[valid_contacts_mask], j_indices[valid_contacts_mask]]
-    else:
-        contact_pairs_pp = np.empty((0, 2), dtype=int)
-        distance_vectors_pp = np.empty((0, 3), dtype=float)
-    contact_ids_pw = particle_ids[sdf_values.flatten() <= sdf_threshold]
-    return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
-
-# The number of particles is not that big but there are a lot of timesteps, approach using KDtree may be suitable
-def compute_contacts_KDTree(positions, sdf_values, particle_ids, threshold_pp, sdf_threshold):
-    """Computes particle-particle and particle-wall contacts based on thresholds using KDTree for efficiency."""
-    from scipy.spatial import cKDTree
-    N = positions.shape[0]
-    if N > 1:
-        tree = cKDTree(positions)
-        pairs = tree.query_pairs(r=threshold_pp)
-        contact_pairs_pp = np.array([[particle_ids[i], particle_ids[j]] for i, j in pairs])
-        distance_vectors_pp = np.array([positions[j] - positions[i] for i, j in pairs])
-    else:
-        contact_pairs_pp = np.empty((0, 2), dtype=int)
-        distance_vectors_pp = np.empty((0, 3), dtype=float)
     contact_ids_pw = particle_ids[sdf_values.flatten() <= sdf_threshold]
     return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
 
@@ -304,8 +269,8 @@ def SDF_gradient_vectorized(points, target_mesh, epsilon=1e-5):
         d = np.zeros(dim); d[i] = epsilon
         points_plus = points + d
         points_minus = points - d
-        sdf_plus = trimesh.proximity.signed_distance(target_mesh, points_plus)
-        sdf_minus = trimesh.proximity.signed_distance(target_mesh, points_minus)
+        sdf_plus = -trimesh.proximity.signed_distance(target_mesh, points_plus)
+        sdf_minus = -trimesh.proximity.signed_distance(target_mesh, points_minus)
         grad[:, i] = (sdf_plus - sdf_minus) / (2 * epsilon)
     return grad
 
@@ -338,27 +303,12 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
     new_snapshot["particle"]["sdf_gradients"] = sdf_gradients
     new_snapshot["particle"]["sdf_distance_vectors"] = sdf_distance_vectors
 
-    # --- Compute Contacts ---
+    # --- Compute Contacts (Original O(N^2) version) ---
     particle_ids = np.array(new_snapshot["particle"]["ids"])
-
-    # --- Original O(N^2) version ---
-    # contacts_pp, contacts_pw = compute_contacts(
-    #     positions, sdf_vals, particle_ids,
-    #     threshold_pp=CONTACT_THRESHOLD_PP, sdf_threshold=CONTACT_THRESHOLD_PW_SDF
-    # )
-
-    # --- Vectorized O(N^2) version ---
-    # contacts_pp, contacts_pw = compute_contacts_vectorized(
-    #     positions, sdf_vals, particle_ids,
-    #     threshold_pp=CONTACT_THRESHOLD_PP, sdf_threshold=CONTACT_THRESHOLD_PW_SDF
-    # )
-
-    # --- KDTree Grid version ---
-    contacts_pp, contacts_pw = compute_contacts_KDTree(
+    contacts_pp, contacts_pw = compute_contacts(
         positions, sdf_vals, particle_ids,
         threshold_pp=CONTACT_THRESHOLD_PP, sdf_threshold=CONTACT_THRESHOLD_PW_SDF
     )
-
     new_snapshot["contacts_particle_particle"] = contacts_pp
     new_snapshot["contacts_particle_wall"] = contacts_pw
 
