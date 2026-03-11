@@ -28,8 +28,8 @@ TOTAL_SIM_TIME = 1.5 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
-# Model Hyperparameters (Must match the trained model!)
-WINDOW_SIZE = 5 # Must match the window size used during training
+# Model hyperparameters
+WINDOW_SIZE = 4
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
 INTERACTION_LAYERS = 6
@@ -245,6 +245,36 @@ def compute_contacts(positions, sdf_values, particle_ids, threshold_pp, sdf_thre
     contact_ids_pw = particle_ids[sdf_values.flatten() <= sdf_threshold]
     return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
 
+import cupy as cp
+
+def compute_contacts_vectorized_gpu(positions, sdf_values, particle_ids, threshold_pp, sdf_threshold):
+    positions = cp.asarray(positions, dtype=cp.float32)
+    sdf_values = cp.asarray(sdf_values, dtype=cp.float32)
+    particle_ids = cp.asarray(particle_ids, dtype=cp.int32)
+
+    N = positions.shape[0]
+
+    # Compute all pairwise distance vectors
+    # Shape: (N, N, 3)
+    diff = positions[:, None, :] - positions[None, :, :]   # broadcasting
+    dist2 = cp.sum(diff * diff, axis=-1)                   # (N, N) squared distances
+
+    # Mask for upper triangle and threshold
+    i, j = cp.triu_indices(N, k=1)                         # indices of i<j
+    mask = dist2[i, j] <= threshold_pp * threshold_pp
+
+    # Gather results
+    pairs = cp.stack((particle_ids[i[mask]], particle_ids[j[mask]]), axis=1)
+    vectors = diff[i[mask], j[mask], :]
+
+    # Particle-wall contacts (trivially vectorized)
+    wall_mask = sdf_values.flatten() <= sdf_threshold
+    wall_ids = particle_ids[wall_mask]
+
+    # Convert back to NumPy (or keep on GPU)
+    return ({"contact_ids": cp.asnumpy(pairs), "distance_vector": cp.asnumpy(vectors)},
+            {"contact_ids": cp.asnumpy(wall_ids)})
+
 def euler_integration(prev_state, linear_acc, dt):
     """Performs one step of Euler integration."""
     particle = prev_state["particle"]; positions = particle["positions"]; velocities = particle["velocities"]
@@ -305,7 +335,7 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
 
     # --- Compute Contacts (Original O(N^2) version) ---
     particle_ids = np.array(new_snapshot["particle"]["ids"])
-    contacts_pp, contacts_pw = compute_contacts(
+    contacts_pp, contacts_pw = compute_contacts_vectorized_gpu(
         positions, sdf_vals, particle_ids,
         threshold_pp=CONTACT_THRESHOLD_PP, sdf_threshold=CONTACT_THRESHOLD_PW_SDF
     )
