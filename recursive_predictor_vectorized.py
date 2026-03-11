@@ -25,7 +25,7 @@ MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 # Simulation Parameters
 DT = 0.002 # Must be 10x the DEM it was trained on for good results (according to paper [1])
 TOTAL_SIM_TIME = 2 # Restored simulation time
-INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
+INTEGRATION_TYPE = "trapezoidal" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
 # Model hyperparameters
@@ -154,68 +154,12 @@ except Exception as e:
     print(f"Error loading model state dict: {e}")
     exit()
 
-# ###################################################
-# # 3. Pre-calculate CoM Splines (Optimization)     #
-# ###################################################
-# print("Pre-calculating CoM interpolation splines...")
-# com_splines = None
-# last_known_com_from_data = None # Store the last CoM from the input data
-
-# try:
-#     com_times = np.array([snap["time"] for snap in extracted_data])
-#     com_actual_coms_raw = np.array([snap["wall_node_features"][:3] for snap in extracted_data])
-#     unique_times, unique_indices = np.unique(com_times, return_index=True)
-
-#     if len(unique_times) < 2:
-#         print("Warning: Not enough unique time points to create CoM splines. CoM interpolation might fail.")
-#         if len(extracted_data) > 0:
-#              last_known_com_from_data = com_actual_coms_raw[-1]
-#     else:
-#         last_known_com_from_data = com_actual_coms_raw[unique_indices[-1]] # CoM at max time in data
-#         com_actual_coms = com_actual_coms_raw[unique_indices]
-#         dt_est = unique_times[1] - unique_times[0]
-#         # Use dt_est for time extension
-#         end_time_extended = unique_times[-1] + dt_est
-#         times_extended = np.append(unique_times, end_time_extended)
-#         x_extended = np.append(com_actual_coms[:, 0], com_actual_coms[0, 0])
-#         y_extended = np.append(com_actual_coms[:, 1], com_actual_coms[0, 1])
-#         z_extended = np.append(com_actual_coms[:, 2], com_actual_coms[0, 2])
-#         spline_x = CubicSpline(times_extended, x_extended, bc_type='periodic')
-#         spline_y = CubicSpline(times_extended, y_extended, bc_type='periodic')
-#         spline_z = CubicSpline(times_extended, z_extended, bc_type='periodic')
-#         com_splines = {'x': spline_x, 'y': spline_y, 'z': spline_z}
-#         print("CoM splines pre-calculated using dt_est extension.")
-
-# except Exception as e:
-#     print(f"Error pre-calculating CoM splines: {e}. CoM interpolation might fail.")
-#     if len(extracted_data) > 0:
-#         last_known_com_from_data = np.array(extracted_data[-1]["wall_node_features"][:3])
-
-# # Ensure a fallback if everything failed
-# if last_known_com_from_data is None:
-#     last_known_com_from_data = np.zeros(3)
-#     print("Warning: Could not determine last known CoM from data. Using [0,0,0] as fallback.")
-
-
 
 ###################################################
 # 4. Helper Functions for Recursive Simulation    #
 ###################################################
 
-# def get_com_at_time_precalculated(query_time, splines, fallback_com):
-#     """Interpolate wall COM using pre-calculated spline objects, relying on periodic extrapolation."""
-#     if splines is None: return fallback_com
-#     try:
-#         # Directly query the spline, relying on its periodic nature for extrapolation
-#         x_val = splines['x'](query_time)
-#         y_val = splines['y'](query_time)
-#         z_val = splines['z'](query_time)
-#         return np.array([x_val, y_val, z_val])
-#     except Exception as e:
-#         # print(f"Error during spline evaluation at time {query_time}: {e}. Returning fallback CoM.")
-#         return fallback_com
-
-def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535, axis = [0, 0, 1], center=[0.44, 0.44, 0.0]):
+def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535, axis = [0, 0, 1], center=[0.44, 0.44, 0.125]):
     
     rotated_mesh = mesh_static.copy()
 
@@ -232,18 +176,6 @@ def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535
 
 
     return rotated_mesh
-
-def compute_contacts(positions, sdf_values, particle_ids, threshold_pp, sdf_threshold):
-    """Computes particle-particle and particle-wall contacts based on thresholds (O(N^2) version)."""
-    N = positions.shape[0]; contact_pairs_pp = []; distance_vectors_pp = []
-    for i in range(N):
-        for j in range(i + 1, N):
-            vec = positions[j] - positions[i]; dist = np.linalg.norm(vec)
-            if dist <= threshold_pp: contact_pairs_pp.append([particle_ids[i], particle_ids[j]]); distance_vectors_pp.append(vec)
-    if contact_pairs_pp: contact_pairs_pp = np.array(contact_pairs_pp); distance_vectors_pp = np.array(distance_vectors_pp)
-    else: contact_pairs_pp = np.empty((0, 2), dtype=int); distance_vectors_pp = np.empty((0, 3), dtype=float)
-    contact_ids_pw = particle_ids[sdf_values.flatten() <= sdf_threshold]
-    return {"contact_ids": contact_pairs_pp, "distance_vector": distance_vectors_pp}, {"contact_ids": contact_ids_pw}
 
 import cupy as cp
 
@@ -310,13 +242,6 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
     new_snapshot["time"] = current_time
     new_snapshot["timestep"] = prev_snapshot.get("timestep", 0) + 1
     new_snapshot["particle"] = new_particle_state["particle"].copy()
-
-    # --- Calculate Wall Position and Mesh ---
-    # current_wall_com = get_com_at_time_precalculated(current_time, com_splines, fallback_com) # Use precalculated spline
-    # com_static_center = mesh_static.center_mass
-    # offset = current_wall_com - com_static_center
-    # moved_mesh = mesh_static.copy()
-    # moved_mesh.vertices = moved_mesh.vertices + offset
 
     moved_mesh = get_rotated_mesh(new_snapshot["timestep"])
 
@@ -469,7 +394,7 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
         global_energy_increment_predicted = global_pred_norm.item() * norm_tensors['norm_global_std'].item() + norm_tensors['norm_global_mean'].item()
         pred_energy_increments.append(global_energy_increment_predicted)
 
-        # 5. Acceleration correction (vectorized)
+        # 5. Acceleration correction (vectorized) (only when using big steps)
         if ACCELERATION_CORRECTION_SCALE > 0:
             prev_sdf_vals = window[-1]["particle"]["sdf_values"].flatten()
             prev_sdf_grads = window[-1]["particle"]["sdf_gradients"]
