@@ -24,15 +24,15 @@ MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 
 # Simulation Parameters
 DT = 0.002 # Must be 10x the DEM it was trained on for good results (according to paper [1])
-TOTAL_SIM_TIME = 1.5 # Restored simulation time
+TOTAL_SIM_TIME = 2 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
 # Model hyperparameters
-WINDOW_SIZE = 4
+WINDOW_SIZE = 10
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
-INTERACTION_LAYERS = 6
+INTERACTION_LAYERS = 8
 NODE_OUT_DIM = 3
 GLOBAL_OUT_DIM = 1
 EDGE_IN_DIM = 3 # Based on distance_vector and sdf_distance_vectors being 3D
@@ -46,8 +46,8 @@ USE_LAST_SNAPSHOT_GLOBAL = False
 # Bigger values wont decrease the quality of the surrogate model, but will increase computation time
 
 PARTICLE_DIAMETER = 0.030 # meters
-CONTACT_THRESHOLD_PP = 0.021526 # Particle-particle contact distance threshold
-CONTACT_THRESHOLD_PW_SDF = 0.014976 # Particle-wall contact SDF threshold
+CONTACT_THRESHOLD_PP = 0.045 # Particle-particle contact distance threshold
+CONTACT_THRESHOLD_PW_SDF = 0.045 # Particle-wall contact SDF threshold
 PENETRATION_THRESHOLD_CORRECTION = 0.011 # SDF threshold for applying acceleration correction
 PENETRATION_THRESHOLD_SNAPBACK = 0.010 # SDF threshold for applying snap-back projection
 ACCELERATION_CORRECTION_SCALE = 0.0 # Factor for acceleration correction (0 = off)

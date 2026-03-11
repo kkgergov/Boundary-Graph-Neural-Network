@@ -31,10 +31,10 @@ CHECKPOINT_PATH = "sgn_checkpoint_modular.pth"
 BEST_MODEL_PATH = "best_model_modular.pth"
 
 # Model hyperparameters
-WINDOW_SIZE = 4
+WINDOW_SIZE = 10
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
-INTERACTION_LAYERS = 6
+INTERACTION_LAYERS = 8
 NODE_OUT_DIM = 3
 GLOBAL_OUT_DIM = 1
 EDGE_IN_DIM = 3 # Based on distance_vector and sdf_distance_vectors being 3D
@@ -45,7 +45,7 @@ USE_LAST_SNAPSHOT_GLOBAL = False
 # Training parameters
 NUM_TRAIN_SAMPLES = 4000
 BATCH_SIZE = 2
-NUM_EPOCHS = 501
+NUM_EPOCHS = 200
 INITIAL_LR = 1e-4
 FINAL_LR = 1e-6
 # HUBER_BETA = 2.0
