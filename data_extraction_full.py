@@ -105,9 +105,8 @@ def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535
 # --- 4. Load Rocky Data and Define Snapshot Range --- #
 ###############################################
 
-# Load deck from pkl file
-with open("./data-drum/1-staging/rocky_deck.pkl", "rb") as f:
-    deck = pickle.load(f)
+# Load deck simulation files
+deck = RockyDeck("./data-drum/0-raw/contacts.npz", "./data-drum/0-raw/particles.npz")
 
 start_timestep = 1000
 last_timestep  = deck.n_timesteps - 1

@@ -29,10 +29,10 @@ INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
 # Model hyperparameters
-WINDOW_SIZE = 10
+WINDOW_SIZE = 4
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
-INTERACTION_LAYERS = 8
+INTERACTION_LAYERS = 6
 NODE_OUT_DIM = 3
 GLOBAL_OUT_DIM = 1
 EDGE_IN_DIM = 3 # Based on distance_vector and sdf_distance_vectors being 3D
