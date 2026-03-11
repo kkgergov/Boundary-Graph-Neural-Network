@@ -24,8 +24,8 @@ MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 
 # Simulation Parameters
 DT = 0.002 # Must be 10x the DEM it was trained on for good results (according to paper [1])
-TOTAL_SIM_TIME = 2 # Restored simulation time
-INTEGRATION_TYPE = "trapezoidal" # 'euler' or 'trapezoidal'
+TOTAL_SIM_TIME = 1.2 # Restored simulation time
+INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
 
 # Model hyperparameters
@@ -220,20 +220,19 @@ def trapezoidal_integration(prev_state, acc_old, acc_new, dt):
     return { "particle": { "positions": new_positions, "velocities": new_velocities, "ids": particle["ids"], "net_forces": acc_new * MASS } }
 
 def SDF_gradient_vectorized(points, target_mesh, epsilon=1e-5):
-    """Computes the gradient of the SDF for multiple points using central finite differences."""
-    points = np.asarray(points)
-    if points.ndim == 1: points = points.reshape(1, -1)
-    num_points, dim = points.shape
-    if dim != 3: raise ValueError("Input points must be 3D.")
+    points = np.array(points)
+    N = points.shape[0]
+    grad = np.zeros((N, 3))
 
-    grad = np.zeros_like(points, dtype=float)
-    for i in range(dim):
-        d = np.zeros(dim); d[i] = epsilon
-        points_plus = points + d
-        points_minus = points - d
-        sdf_plus = -trimesh.proximity.signed_distance(target_mesh, points_plus)
-        sdf_minus = -trimesh.proximity.signed_distance(target_mesh, points_minus)
+    for i in range(3):
+        d = np.zeros((N, 3))
+        d[:, i] = epsilon
+
+        sdf_plus = trimesh.proximity.signed_distance(target_mesh, points + d)
+        sdf_minus = trimesh.proximity.signed_distance(target_mesh, points - d)
+
         grad[:, i] = (sdf_plus - sdf_minus) / (2 * epsilon)
+
     return grad
 
 def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_time):
@@ -441,14 +440,14 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
         if np.any(snapback_mask):
             positions_to_correct = current_positions[snapback_mask]
             grads_snapback = SDF_gradient_vectorized(positions_to_correct, moved_mesh_next)
-            grad_norms = np.linalg.norm(grads_snapback, axis=1, keepdims=True)
+            grad_norms = np.linalg.norm(grads_snapback, axis=1, keepdims=True) # This may be the culprit
             valid_grad_mask_sb = (grad_norms > data_utils.EPSILON).flatten()
             if np.any(valid_grad_mask_sb):
                  positions_to_correct_valid = positions_to_correct[valid_grad_mask_sb]
                  sdf_vals_to_correct = sdf_vals_next[snapback_mask][valid_grad_mask_sb]
                  normal_dirs = grads_snapback[valid_grad_mask_sb] / grad_norms[valid_grad_mask_sb] # Use normalized finite diff gradient
                  correction_distances = sdf_vals_to_correct - PENETRATION_THRESHOLD_SNAPBACK
-                 pos_corrected = positions_to_correct_valid + correction_distances[:, np.newaxis] * normal_dirs
+                 pos_corrected = positions_to_correct_valid - correction_distances[:, np.newaxis] * normal_dirs
                  indices_to_snapback = np.where(snapback_mask)[0][valid_grad_mask_sb]
                  new_particle_state["particle"]["positions"][indices_to_snapback] = pos_corrected
 
