@@ -17,13 +17,13 @@ It initializes with a window of ground truth data, then iteratively:
 # --- Configuration --- #
 #######################
 # File Paths
-DATA_FILE = "./data-drum/1-staging/extracted_data.pkl" # Ground truth data for initialization and comparison
+DATA_FILE = "./data-drum/1-staging/extracted_data_trimmed.npz" # Ground truth data for initialization and comparison
 STL_FILE = "./data-drum/0-raw/merged_meshes.stl" # Watertight wall mesh
 NORM_PARAMS_FILE = "./data-drum/2-pre-process/normalization_params.pkl" # From training
 MODEL_PATH = "best_model_modular.pth" # Trained model from main_modular.py
 
 # Simulation Parameters
-DT = 0.002 # Must be 10x the DEM it was trained on for good results (according to paper [1])
+DT = 0.002 # Can be further increased but we need to enable Acceleration correction
 TOTAL_SIM_TIME = 1.2 # Restored simulation time
 INTEGRATION_TYPE = "euler" # 'euler' or 'trapezoidal'
 RPM = 3.1415926535 # Wall rotational speed (used for wall features)
@@ -58,10 +58,10 @@ OUTPUT_POSITIONS_FILE = "positions_recursive_vectorized.pkl"
 OUTPUT_COMS_FILE = "coms_recursive_vectorized.pkl"
 OUTPUT_RESULTS_FILE = "model_results_recursive_vectorized.pkl"
 OUTPUT_PLOT_MSE_FILE = "mse_plot_recursive_vectorized.png"
-OUTPUT_PLOT_ENERGY_DIRECT_FILE = "energy_plot_direct_recursive_vectorized.png"
-OUTPUT_PLOT_ENERGY_BLOCK_AVG_FILE = "energy_plot_block_avg_recursive_vectorized.png"
+OUTPUT_PLOT_DyAOR_DIRECT_FILE = "DyAOR_plot_direct_recursive_vectorized.png"
+OUTPUT_PLOT_DyAOR_BLOCK_AVG_FILE = "DyAOR_plot_block_avg_recursive_vectorized.png"
 POSITION_SAVE_INTERVAL = 0.1 # Interval (s) to save particle positions
-MOVING_AVERAGE_WINDOW = 5 # Window size for block averaging energy plot. This is typically unnecessary and was only used for debugging.
+MOVING_AVERAGE_WINDOW = 5 # Window size for block averaging of global pred
 
 # Other Constants
 MASS = 0.0353429 # kg (Must match training)
@@ -91,10 +91,15 @@ import models
 
 # --- Load Ground Truth Data ---
 try:
-    extracted_data = data_utils.load_extracted_data(DATA_FILE)
-    if not extracted_data: raise ValueError("Extracted data is empty.")
-except Exception as e:
-    print(f"Error loading/processing ground truth data: {e}")
+    if not os.path.exists(DATA_FILE):
+        raise FileNotFoundError(f"Extracted data file not found at: {DATA_FILE}")
+    # load data from .npz file
+    with np.load(DATA_FILE, allow_pickle=True) as data:
+        extracted_data = data['data']
+
+    print(f"Loaded extracted data for {len(extracted_data)} snapshots from {DATA_FILE}.")
+except FileNotFoundError as e:
+    print(f"Error: {e}")
     exit()
 
 # --- Load Geometry ---
@@ -159,7 +164,7 @@ except Exception as e:
 # 4. Helper Functions for Recursive Simulation    #
 ###################################################
 
-def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535, axis = [0, 0, 1], center=[0.44, 0.44, 0.125]):
+def get_rotated_mesh(timestep_index, timestep_size = DT, rad_s = 3.1415926535, axis = [0, 0, 1], center=[0.44, 0.44, 0.125]):
     
     rotated_mesh = mesh_static.copy()
 
@@ -219,6 +224,10 @@ def trapezoidal_integration(prev_state, acc_old, acc_new, dt):
     new_velocities = velocities_old + 0.5 * (acc_old + acc_new) * dt; new_positions = positions_old + 0.5 * (velocities_old + new_velocities) * dt
     return { "particle": { "positions": new_positions, "velocities": new_velocities, "ids": particle["ids"], "net_forces": acc_new * MASS } }
 
+def SDF_static(points, target_mesh):
+    """Calculates signed distance from points to a static mesh."""
+    return trimesh.proximity.signed_distance(target_mesh, points)
+
 def SDF_gradient_vectorized(points, target_mesh, epsilon=1e-5):
     points = np.array(points)
     N = points.shape[0]
@@ -246,7 +255,7 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
 
     # --- Vectorized SDF, Gradients (Finite Diff), and Distance Vectors ---
     positions = new_snapshot["particle"]["positions"]
-    sdf_vals = data_utils.SDF_static(positions, moved_mesh).reshape(-1, 1)
+    sdf_vals = SDF_static(positions, moved_mesh).reshape(-1, 1)
     sdf_gradients = SDF_gradient_vectorized(positions, moved_mesh)
 
     norms = np.linalg.norm(sdf_gradients, axis=1, keepdims=True)
@@ -257,7 +266,7 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
     new_snapshot["particle"]["sdf_gradients"] = sdf_gradients
     new_snapshot["particle"]["sdf_distance_vectors"] = sdf_distance_vectors
 
-    # --- Compute Contacts (Original O(N^2) version) ---
+    # --- Compute Contacts ---
     particle_ids = np.array(new_snapshot["particle"]["ids"])
     contacts_pp, contacts_pw = compute_contacts_vectorized_gpu(
         positions, sdf_vals, particle_ids,
@@ -268,12 +277,11 @@ def create_new_snapshot_vectorized(prev_snapshot, new_particle_state, current_ti
 
     # --- Wall Features ---
     # wall_feature = np.concatenate([current_wall_com, np.array([RPM])])
-    wall_feature = np.concatenate([[0.44, 0.44, 0.0], np.array([RPM])])
+    wall_feature = np.concatenate([[0.44, 0.44, 0.125], np.array([RPM])])
     new_snapshot["wall_node_features"] = wall_feature
 
-    # --- Energy ---
-    new_snapshot["energy_normal_increment"] = 0.0
-    new_snapshot["energy_tangential_increment"] = 0.0
+    # --- DyAOR ---
+    new_snapshot["DyAOR"] = 0.0
 
     return new_snapshot # Return only snapshot
 
@@ -329,7 +337,7 @@ def build_sgn_features_window_recursive(window_snapshots):
     else: final_edge_index = torch.empty((2, 0), dtype=torch.long); final_edge_attr = torch.empty((0, EDGE_IN_DIM), dtype=torch.float)
     net_forces = np.array(particle["net_forces"]); y_particles = net_forces / MASS
     wall_target = np.array(last_snap["wall_node_features"])[:NODE_OUT_DIM].reshape(1, NODE_OUT_DIM); y_node = np.vstack([y_particles, wall_target])
-    global_target_val = last_snap.get("energy_normal_increment", 0.0) + last_snap.get("energy_tangential_increment", 0.0)
+    global_target_val = last_snap.get("DyAOR", 0.0)
     data = Data(x=torch.tensor(node_features, dtype=torch.float), edge_index=final_edge_index, edge_attr=final_edge_attr, y=torch.tensor(y_node, dtype=torch.float))
     data.time = last_snap["time"]; data.global_target = torch.tensor(np.array([global_target_val]), dtype=torch.float)
     data.edge_attr_pp = torch.tensor(edge_attr_pp_input, dtype=torch.float); data.edge_attr_pw = torch.tensor(edge_attr_pw_input, dtype=torch.float)
@@ -364,8 +372,8 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
     initial_net_forces = np.array(initial_snapshot["particle"]["net_forces"])
     acc_old = initial_net_forces / MASS
 
-    mse_energy_dict, mse_x_dict, mse_y_dict, mse_z_dict, mse_sdf_dict = {}, {}, {}, {}, {}
-    pred_energy_increments, gt_energy_increments = [], []
+    mse_DyAOR_dict, mse_x_dict, mse_y_dict, mse_z_dict, mse_sdf_dict = {}, {}, {}, {}, {}
+    pred_DyAOR, gt_DyAOR = [], []
 
     # --- Main Loop ---
     while current_time < TOTAL_SIM_TIME:
@@ -390,14 +398,14 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
         # 4. Denormalize predictions
         linear_acc_norm = node_pred_norm[:-1].cpu().numpy()
         acc_new = linear_acc_norm * norm_tensors['norm_target_std'][:NODE_OUT_DIM].cpu().numpy() + norm_tensors['norm_target_mean'][:NODE_OUT_DIM].cpu().numpy()
-        global_energy_increment_predicted = global_pred_norm.item() * norm_tensors['norm_global_std'].item() + norm_tensors['norm_global_mean'].item()
-        pred_energy_increments.append(global_energy_increment_predicted)
+        global_DyAOR_predicted = global_pred_norm.item() * norm_tensors['norm_global_std'].item() + norm_tensors['norm_global_mean'].item()
+        pred_DyAOR.append(global_DyAOR_predicted)
 
         # 5. Acceleration correction (vectorized) (only when using big steps)
         if ACCELERATION_CORRECTION_SCALE > 0:
             prev_sdf_vals = window[-1]["particle"]["sdf_values"].flatten()
             prev_sdf_grads = window[-1]["particle"]["sdf_gradients"]
-            correction_mask = prev_sdf_vals > PENETRATION_THRESHOLD_CORRECTION
+            correction_mask = prev_sdf_vals < PENETRATION_THRESHOLD_CORRECTION
             if np.any(correction_mask):
                  grads_to_correct = prev_sdf_grads[correction_mask]; acc_to_correct = acc_new[correction_mask]
                  grad_norms = np.linalg.norm(grads_to_correct, axis=1, keepdims=True)
@@ -420,22 +428,17 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
         # 7. Velocity damping (vectorized)
         if VELOCITY_DAMPING_FACTOR != 1.0:
              prev_sdf_vals = window[-1]["particle"]["sdf_values"].flatten()
-             damping_mask = prev_sdf_vals > PENETRATION_THRESHOLD_CORRECTION
+             damping_mask = prev_sdf_vals < PENETRATION_THRESHOLD_CORRECTION
              if np.any(damping_mask): new_particle_state["particle"]["velocities"][damping_mask] *= VELOCITY_DAMPING_FACTOR
 
         # 8. Snap-back projection (vectorized SDF check)
         next_time = step_start_time + DT
         next_timestep = current_timestep + 1
-        # # Use the precalculated CoM function (which relies on spline's periodic extrapolation)
-        # current_wall_com = get_com_at_time_precalculated(next_time, com_splines, fallback_com)
-        # com_static_center = mesh_static.center_mass
-        # offset = current_wall_com - com_static_center
-        # moved_mesh_next = mesh_static.copy(); moved_mesh_next.vertices += offset
 
         moved_mesh_next = get_rotated_mesh(next_timestep)
 
         current_positions = new_particle_state["particle"]["positions"]
-        sdf_vals_next = data_utils.SDF_static(current_positions, moved_mesh_next)
+        sdf_vals_next = SDF_static(current_positions, moved_mesh_next)
         snapback_mask = sdf_vals_next < PENETRATION_THRESHOLD_SNAPBACK
         if np.any(snapback_mask):
             positions_to_correct = current_positions[snapback_mask]
@@ -455,7 +458,7 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
         try:
             # Pass precalculated splines and fallback CoM
             new_snapshot = create_new_snapshot_vectorized(prev_snapshot, new_particle_state, next_time)
-            new_snapshot["predicted_energy_increment"] = global_energy_increment_predicted
+            new_snapshot["predicted_DyAOR"] = global_DyAOR_predicted
         except Exception as e: print(f"Error creating snapshot: {e}"); break
 
         simulation_results.append(new_snapshot)
@@ -477,13 +480,10 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
                 mse_x_dict[gt_time] = mse_x; mse_y_dict[gt_time] = mse_y; mse_z_dict[gt_time] = mse_z
                 sim_sdf = new_snapshot["particle"]["sdf_values"]; dem_sdf = matched_dem["particle"]["sdf_values"]
                 mse_sdf = np.mean((sim_sdf - dem_sdf) ** 2); mse_sdf_dict[gt_time] = mse_sdf
-                gt_inc_n = matched_dem.get("energy_normal_increment", 0.0)
-                gt_inc_t = matched_dem.get("energy_tangential_increment", 0.0)
-                gt_inc = float(gt_inc_n[0] if isinstance(gt_inc_n, (np.ndarray, list)) and len(gt_inc_n)>0 else gt_inc_n) + \
-                         float(gt_inc_t[0] if isinstance(gt_inc_t, (np.ndarray, list)) and len(gt_inc_t)>0 else gt_inc_t)
-                gt_energy_increments.append(gt_inc); diff_energy = global_energy_increment_predicted - gt_inc; mse_energy_dict[gt_time] = diff_energy**2
-            else: gt_energy_increments.append(np.nan)
-        else: gt_energy_increments.append(np.nan)
+                gt_DyAOR_dem = matched_dem.get("DyAOR", 0.0)
+                gt_DyAOR.append(gt_DyAOR_dem); diff_DyAOR = global_DyAOR_predicted - gt_DyAOR_dem; mse_DyAOR_dict[gt_time] = diff_DyAOR**2
+            else: gt_DyAOR.append(np.nan)
+        else: gt_DyAOR.append(np.nan)
 
         # 12. Update Window and Time
         window.pop(0); window.append(new_snapshot)
@@ -492,7 +492,7 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
         if int(current_time / DT) % 100 == 0: print(f"Simulated up to time: {current_time:.6f} s")
 
     print("Recursive simulation finished.")
-    return simulation_results, positions_dict, mse_x_dict, mse_y_dict, mse_z_dict, mse_sdf_dict, mse_energy_dict, pred_energy_increments, gt_energy_increments
+    return simulation_results, positions_dict, mse_x_dict, mse_y_dict, mse_z_dict, mse_sdf_dict, mse_DyAOR_dict, pred_DyAOR, gt_DyAOR
 
 
 ###############################
@@ -514,7 +514,7 @@ if __name__ == "__main__":
     # 7. Post-Processing & Saving #
     ###############################
     if results: # Check if simulation ran successfully
-        simulation_results, positions_dict, mse_x_dict, mse_y_dict, mse_z_dict, mse_sdf_dict, mse_energy_dict, pred_energy_increments, gt_energy_increments = results
+        simulation_results, positions_dict, mse_x_dict, mse_y_dict, mse_z_dict, mse_sdf_dict, mse_DyAOR_dict, pred_DyAOR, gt_DyAOR = results
 
         # --- Save Simulation Outputs ---
         try:
@@ -522,28 +522,16 @@ if __name__ == "__main__":
             print(f"Saved predicted particle positions to {OUTPUT_POSITIONS_FILE}")
         except Exception as e: print(f"Error saving positions: {e}")
 
-        com_static_center = mesh_static.center_mass
-        coms_dict = {}
-        saved_times = sorted(positions_dict.keys())
-        # Use the same CoM calculation method for saving as used in the loop
-        for t in saved_times:
-            # current_wall_com = get_com_at_time_precalculated(t, com_splines, last_known_com_from_data)
-            coms_dict[t] = np.array([0.44, 0.44, 0.0]) # Store wall CoM used at this time
-        try:
-            with open(OUTPUT_COMS_FILE, "wb") as f: pickle.dump(coms_dict, f)
-            print(f"Saved wall CoM positions to {OUTPUT_COMS_FILE}")
-        except Exception as e: print(f"Error saving CoMs: {e}")
-
-        num_pred_steps = len(pred_energy_increments)
-        gt_energy_increments_padded = np.pad(gt_energy_increments, (0, num_pred_steps - len(gt_energy_increments)), 'constant', constant_values=np.nan)
+        num_pred_steps = len(pred_DyAOR)
+        gt_DyAOR_padded = np.pad(gt_DyAOR, (0, num_pred_steps - len(gt_DyAOR)), 'constant', constant_values=np.nan)
         results_summary = {
             "mse_x_dict": mse_x_dict, "mse_y_dict": mse_y_dict, "mse_z_dict": mse_z_dict,
-            "mse_sdf_dict": mse_sdf_dict, "mse_energy_dict": mse_energy_dict,
-            "pred_energy_increments": pred_energy_increments, "gt_energy_increments": gt_energy_increments_padded
+            "mse_sdf_dict": mse_sdf_dict, "mse_DyAOR_dict": mse_DyAOR_dict,
+            "pred_DyAOR": pred_DyAOR, "gt_DyAOR": gt_DyAOR_padded
         }
         try:
             with open(OUTPUT_RESULTS_FILE, "wb") as f: pickle.dump(results_summary, f)
-            print(f"Saved MSE and energy results to {OUTPUT_RESULTS_FILE}")
+            print(f"Saved MSE and DyAOR results to {OUTPUT_RESULTS_FILE}")
         except Exception as e: print(f"Error saving results: {e}")
 
         # --- Plotting ---
@@ -570,74 +558,25 @@ if __name__ == "__main__":
         else:
             print("No position/SDF MSE data to plot.")
 
-        if pred_energy_increments and gt_energy_increments_padded.size > 0:
-            pred_increments_np = np.array(pred_energy_increments)
-            gt_increments_np = gt_energy_increments_padded
-            valid_gt_mask = ~np.isnan(gt_increments_np)
-            cumulative_pred = np.cumsum(pred_increments_np)
-            cumulative_gt = np.cumsum(gt_increments_np[valid_gt_mask])
+        if pred_DyAOR and gt_DyAOR_padded.size > 0:
+            pred_DyAOR_np = np.array(pred_DyAOR)
+            gt_DyAOR_np = gt_DyAOR_padded
             sim_times = np.array([snap["time"] for snap in simulation_results]) if simulation_results else np.array([])
-            gt_times_for_plot = sim_times[valid_gt_mask] if len(sim_times) == len(valid_gt_mask) else sim_times[:len(cumulative_gt)]
+            gt_times_for_plot = sim_times
 
             plt.figure(figsize=(10, 6))
             if len(sim_times) > 0:
-                plt.plot(sim_times, cumulative_pred, label="SGN Predicted Cumulative Energy", marker='.', linestyle='-')
-            if len(cumulative_gt) > 0:
-                plt.plot(gt_times_for_plot, cumulative_gt, label="DEM Ground Truth Cumulative Energy", marker='.', linestyle='--')
+                plt.plot(sim_times, pred_DyAOR_np, label="SGN Predicted DyAOR", marker='.', linestyle='-')
+            if len(gt_DyAOR_np) > 0:
+                plt.plot(gt_times_for_plot, gt_DyAOR_np, label="DEM Ground Truth DyAOR", marker='.', linestyle='--')
             plt.xlabel("Time (s)")
-            plt.ylabel("Cumulative Energy Dissipation")
-            plt.title("Recursive Simulation: Cumulative Energy Dissipation Comparison (Direct Sum)")
+            plt.ylabel("DyAOR values")
+            plt.title("Recursive Simulation: DyAOR")
             plt.grid(True)
             plt.legend()
             plt.tight_layout()
-            plt.savefig(OUTPUT_PLOT_ENERGY_DIRECT_FILE)
-            print(f"Saved direct cumulative energy plot to {OUTPUT_PLOT_ENERGY_DIRECT_FILE}")
-
-            if MOVING_AVERAGE_WINDOW > 0:
-                n_blocks_pred = len(pred_increments_np) // MOVING_AVERAGE_WINDOW
-                if n_blocks_pred > 0:
-                    block_means_pred = np.array([np.mean(pred_increments_np[i*MOVING_AVERAGE_WINDOW:(i+1)*MOVING_AVERAGE_WINDOW]) for i in range(n_blocks_pred)])
-                    cumulative_pred_block = np.cumsum(block_means_pred)
-                    cumulative_gt_full = np.cumsum(gt_increments_np[~np.isnan(gt_increments_np)])
-                    gt_indices_for_downsample = np.arange(len(gt_increments_np))[~np.isnan(gt_increments_np)]
-                    downsampled_indices = []; downsampled_cumulative_gt = []
-                    for i in range(n_blocks_pred):
-                         block_end_step_index = (i + 1) * MOVING_AVERAGE_WINDOW - 1
-                         valid_indices_in_block = gt_indices_for_downsample[gt_indices_for_downsample <= block_end_step_index]
-                         if len(valid_indices_in_block) > 0:
-                             closest_gt_index = valid_indices_in_block[-1]
-                             cumsum_indices = np.where(gt_indices_for_downsample == closest_gt_index)[0]
-                             if cumsum_indices.size > 0:
-                                 cumsum_index = cumsum_indices[0]
-                                 if cumsum_index < len(cumulative_gt_full):
-                                     downsampled_cumulative_gt.append(cumulative_gt_full[cumsum_index])
-                                     downsampled_indices.append(block_end_step_index)
-                                 else:
-                                     print(f"Warning: cumsum_index {cumsum_index} out of bounds for cumulative_gt_full (len {len(cumulative_gt_full)}) at block {i}")
-                             else:
-                                 print(f"Warning: closest_gt_index {closest_gt_index} not found in gt_indices_for_downsample at block {i}")
-
-                    if downsampled_cumulative_gt and len(downsampled_indices) == len(cumulative_pred_block):
-                        downsampled_cumulative_gt = np.array(downsampled_cumulative_gt)
-                        sim_times_array = np.array([snap["time"] for snap in simulation_results]) if simulation_results else np.array([])
-                        if len(sim_times_array) > 0 and max(downsampled_indices) < len(sim_times_array): # Check index validity
-                            time_array_downsampled = sim_times_array[downsampled_indices]
-                            plt.figure(figsize=(10, 6))
-                            plt.plot(time_array_downsampled, cumulative_pred_block, label=f"SGN Predicted (Cumulative Block Avg, {MOVING_AVERAGE_WINDOW} steps)", marker='o', linestyle='-')
-                            plt.plot(time_array_downsampled, downsampled_cumulative_gt, label="DEM Ground Truth (Downsampled Cumulative)", marker='s', linestyle='--')
-                            plt.xlabel("Time (s)")
-                            plt.ylabel("Cumulative Value")
-                            plt.title("Cumulative Block Average Energy vs. Downsampled Cumulative Ground Truth")
-                            plt.grid(True)
-                            plt.legend()
-                            plt.tight_layout()
-                            plt.savefig(OUTPUT_PLOT_ENERGY_BLOCK_AVG_FILE)
-                            print(f"Saved block-averaged cumulative energy plot to {OUTPUT_PLOT_ENERGY_BLOCK_AVG_FILE}")
-                            # plt.show()
-                        else:
-                             print("Index mismatch or simulation results too short for block averaging plot.")
-                    else: print("Not enough data points or length mismatch for block averaging plot.")
-                else: print("Not enough data points for block averaging plot.")
-        else: print("No energy increment data to plot.")
+            plt.savefig(OUTPUT_PLOT_DyAOR_DIRECT_FILE)
+            print(f"Saved direct cumulative DyAOR plot to {OUTPUT_PLOT_DyAOR_DIRECT_FILE}")
+        else: print("No DyAOR data to plot.")
 
     print("Script execution complete.")
