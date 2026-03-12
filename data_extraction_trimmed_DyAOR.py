@@ -102,7 +102,8 @@ for snapshot_full in extracted_data:
     snapshot_trimmed["wall_node_features"][3] = DRUM_ROT_SPEED * snapshot_trimmed["time"] # rad/s * time = current angle of the drum
 
     # Our second ground truth for training, DyAOR is a global feature that we want the model to predict
-    snapshot_trimmed["AOR"] = calculate_DyAOR(snapshot_trimmed["particle"]["positions"], snapshot_trimmed["wall_node_features"])
+    DyAOR = calculate_DyAOR(snapshot_trimmed["particle"]["positions"], snapshot_trimmed["wall_node_features"])
+    snapshot_trimmed["DyAOR"] = np.array([DyAOR])
     trimmed_data.append(snapshot_trimmed)
 
 # Save trimmed data in compressed npz format

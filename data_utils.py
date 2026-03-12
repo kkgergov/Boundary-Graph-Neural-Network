@@ -9,7 +9,6 @@ import pickle
 import numpy as np
 import torch
 from torch_geometric.data import Data
-import trimesh
 import os
 
 
@@ -17,29 +16,12 @@ import os
 PARTICLE_FEATURE_DIM = 7 # velocities (3), sdf_value (1), sdf_gradient (3)
 WALL_FEATURE_PAD_DIM = 7 # Padded dimension for wall features per snapshot
 EPSILON = 1e-6 # For safe division during normalization
-
-# --- SDF and Mesh Movement Functions ---
-
-def SDF_static(points, target_mesh):
-    """Calculates signed distance from points to a static mesh."""
-    return trimesh.proximity.signed_distance(target_mesh, points)
-
-# --- Data Loading ---
-
-def load_extracted_data(filepath="./data-drum/1-staging/extracted_data.pkl"):
-    """Loads the extracted simulation data from a pickle file."""
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"Extracted data file not found at: {filepath}")
-    with open(filepath, "rb") as f:
-        extracted_data = pickle.load(f)
-    print(f"Loaded extracted data for {len(extracted_data)} snapshots from {filepath}.")
-    return extracted_data
+DESIRED_Y_SHIFT = 0.00192903 # Determined from COM method at rest to match STL with DEM simulation. Adapt to your case.
 
 # --- Feature Engineering ---
 
 def build_sgn_features_window(window_snapshots, mass, use_last_snapshot_global=False):
     """Builds node and edge features for a window of snapshots."""
-
     # Build particle features.
     particle_features_list = []
     for snap in window_snapshots:
@@ -77,11 +59,10 @@ def build_sgn_features_window(window_snapshots, mass, use_last_snapshot_global=F
     particle_ids = np.array(particle["ids"])
     num_particles = len(particle_ids)
     id_to_index = {pid: idx for idx, pid in enumerate(particle_ids)}
-
     wall_node_index = num_particles # Index of the single wall node
 
     # Global target from the last snapshot.
-    global_target = last_snap["AOR"]
+    global_target =  last_snap["DyAOR"]
 
     # Node targets (Accelerations for particles, first 3 wall features for wall)
     # Ensure wall target has shape (1, 3)
@@ -142,7 +123,7 @@ def build_sgn_features_window(window_snapshots, mass, use_last_snapshot_global=F
                 y=torch.tensor(node_targets, dtype=torch.float))
     data.timestep = last_snap["timestep"]
     data.time = last_snap["time"]
-    data.global_target = torch.tensor(np.array([global_target]), dtype=torch.float)
+    data.global_target = torch.tensor([global_target], dtype=torch.float)
 
     # Store separate edge features and indices before combining.
     data.edge_attr_pp = torch.tensor(edge_attr_pp_input, dtype=torch.float)
@@ -295,16 +276,15 @@ def calculate_normalization_params(train_dataset):
         'norm_global_mean': norm_global_mean.cpu().numpy(),
         'norm_global_std': norm_global_std.cpu().numpy()
     }
-
     return normalization_params
 
-def save_normalization_params(params, filepath="./data-drum/2-pre-process/normalization_params.pkl"):
+def save_normalization_params(params, filepath="normalization_params.pkl"):
     """Saves normalization parameters to a pickle file."""
     with open(filepath, "wb") as f:
         pickle.dump(params, f)
     print(f"Saved normalization parameters to {filepath}.")
 
-def load_normalization_params(filepath="./data-drum/2-pre-process/normalization_params.pkl"):
+def load_normalization_params(filepath="normalization_params.pkl"):
     """Loads normalization parameters from a pickle file."""
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Normalization parameters file not found at: {filepath}")
