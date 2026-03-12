@@ -49,8 +49,8 @@ BATCH_SIZE = 2
 NUM_EPOCHS = 200
 INITIAL_LR = 1e-4
 FINAL_LR = 1e-6
-# HUBER_BETA = 2.0
-# LOSS_ALPHA = 3 # Weight for node loss
+HUBER_BETA = 2.0
+LOSS_ALPHA = 3 # Weight for node loss
 VELOCITY_NOISE_STD = 0.005 # Noise added during training # Prev 0.005
 RESUME_TRAINING = True # Flag to resume from checkpoint
 
@@ -152,23 +152,17 @@ model = model.to(device)
 if torch.cuda.device_count() > 1:
     print(f"Using {torch.cuda.device_count()} GPUs.")
     model = nn.DataParallel(model) # Assuming device_ids=[0, 1] implicitly or adjust as needed
-else:
-    print(device)
 
 # Loss function
-# huber_loss = nn.SmoothL1Loss(beta=HUBER_BETA) # Paper
-mse_loss = nn.MSELoss()
-
+huber_loss = nn.SmoothL1Loss(beta=HUBER_BETA)
 
 # Optimizer and Scheduler
 optimizer = optim.Adam(model.parameters(), lr=INITIAL_LR)
-
-# Calculate gamma for exponential decay # Paper
+# Calculate gamma for exponential decay
 if NUM_EPOCHS > 0:
     gamma = (FINAL_LR / INITIAL_LR) ** (1 / NUM_EPOCHS)
 else:
     gamma = 1.0 # No decay if 0 epochs
-
 scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
 
 # Training state variables
@@ -216,10 +210,10 @@ print(f"Starting training for {NUM_EPOCHS - start_epoch} epochs...")
 
 for epoch in range(start_epoch, NUM_EPOCHS):
     model.train()
-    # total_train_huber_loss = 0.0
+    total_train_huber_loss = 0.0
     total_train_mse_loss_node = 0.0
-    # total_train_global_huber = 0.0
-    # total_train_global_mse = 0.0
+    total_train_global_huber = 0.0
+    total_train_global_mse = 0.0
     train_batches = 0
 
     for data in train_loader:
@@ -245,52 +239,42 @@ for epoch in range(start_epoch, NUM_EPOCHS):
         optimizer.zero_grad()
         node_pred, global_pred = model(data)
 
+        # Compute Huber losses (exclude wall node from node loss)
         num_nodes = data.y.size(0)
-        # # Compute Huber losses (exclude wall node from node loss) # Paper, potential for DyAOR
-        # if num_nodes > 1: # Check if particle nodes exist
-        #     loss_node = huber_loss(node_pred[:-1], data.y[:-1])
-        # else: # Handle case with only wall node (or empty graph?)
-        #     loss_node = torch.tensor(0.0, device=device) # No particle loss if no particles
-
-        # loss_global = huber_loss(global_pred, data.global_target)
-        # loss = LOSS_ALPHA * loss_node + loss_global
-
         if num_nodes > 1: # Check if particle nodes exist
-            loss_node = mse_loss(node_pred[:-1], data.y[:-1])
+            loss_node = huber_loss(node_pred[:-1], data.y[:-1])
         else: # Handle case with only wall node (or empty graph?)
             loss_node = torch.tensor(0.0, device=device) # No particle loss if no particles
-        loss = loss_node
+
+        loss_global = huber_loss(global_pred, data.global_target)
+        loss = LOSS_ALPHA * loss_node + loss_global
 
         loss.backward()
         optimizer.step()
 
-        # # Accumulate losses for monitoring
-        # total_train_huber_loss += loss.item()
-        # if num_nodes > 1:
-        #     mse_node = F.mse_loss(node_pred[:-1], data.y[:-1]).item()
-        #     total_train_mse_loss_node += mse_node
-        # mse_global = F.mse_loss(global_pred, data.global_target).item()
-        # total_train_global_mse += mse_global
-        # total_train_global_huber += loss_global.item()
-
-        total_train_mse_loss_node += loss.item()
-
+        # Accumulate losses for monitoring
+        total_train_huber_loss += loss.item()
+        if num_nodes > 1:
+            mse_node = F.mse_loss(node_pred[:-1], data.y[:-1]).item()
+            total_train_mse_loss_node += mse_node
+        mse_global = F.mse_loss(global_pred, data.global_target).item()
+        total_train_global_mse += mse_global
+        total_train_global_huber += loss_global.item()
 
         train_batches += 1
 
     # Calculate average training losses for the epoch
-    # avg_train_huber = total_train_huber_loss / train_batches if train_batches > 0 else 0
+    avg_train_huber = total_train_huber_loss / train_batches if train_batches > 0 else 0
     avg_train_mse_node = total_train_mse_loss_node / train_batches if train_batches > 0 else 0
-    # avg_train_global_huber = total_train_global_huber / train_batches if train_batches > 0 else 0
-    # avg_train_global_mse = total_train_global_mse / train_batches if train_batches > 0 else 0
-    # train_loss_history.append(avg_train_huber)
-    train_loss_history.append(avg_train_mse_node)
+    avg_train_global_huber = total_train_global_huber / train_batches if train_batches > 0 else 0
+    avg_train_global_mse = total_train_global_mse / train_batches if train_batches > 0 else 0
+    train_loss_history.append(avg_train_huber)
 
     # --- Testing Loop ---
-    # avg_test_huber = 0.0
+    avg_test_huber = 0.0
     avg_test_mse_node = 0.0
-    # avg_test_global_huber = 0.0
-    # avg_test_global_mse = 0.0
+    avg_test_global_huber = 0.0
+    avg_test_global_mse = 0.0
 
     if test_loader:
         model.eval()
@@ -305,35 +289,28 @@ for epoch in range(start_epoch, NUM_EPOCHS):
                 node_pred, global_pred = model(data)
 
                 num_nodes = data.y.size(0)
-                # if num_nodes > 1:
-                #     loss_node = huber_loss(node_pred[:-1], data.y[:-1])
-                #     mse_node = F.mse_loss(node_pred[:-1], data.y[:-1]).item()
-                #     total_test_mse_loss_node += mse_node
-                # else:
-                #     loss_node = torch.tensor(0.0, device=device)
-
                 if num_nodes > 1:
-                    loss_node = mse_loss(node_pred[:-1], data.y[:-1])
-                    total_test_mse_loss_node += loss_node.item()
+                    loss_node = huber_loss(node_pred[:-1], data.y[:-1])
+                    mse_node = F.mse_loss(node_pred[:-1], data.y[:-1]).item()
+                    total_test_mse_loss_node += mse_node
                 else:
                     loss_node = torch.tensor(0.0, device=device)
 
-                # loss_global = huber_loss(global_pred, data.global_target)
-                # batch_loss = LOSS_ALPHA * loss_node + loss_global
-                # batch_loss_orig_calc = loss_node + loss_global
-                # total_test_huber += batch_loss_orig_calc.item()
+                loss_global = huber_loss(global_pred, data.global_target)
+                batch_loss = LOSS_ALPHA * loss_node + loss_global
+                batch_loss_orig_calc = loss_node + loss_global
+                total_test_huber += batch_loss_orig_calc.item()
 
-                # mse_global = F.mse_loss(global_pred, data.global_target).item()
-                # total_test_global_mse += mse_global
-                # total_test_global_huber += loss_global.item()
+                mse_global = F.mse_loss(global_pred, data.global_target).item()
+                total_test_global_mse += mse_global
+                total_test_global_huber += loss_global.item()
                 test_batches += 1
 
-        # avg_test_huber = total_test_huber / test_batches if test_batches > 0 else 0
+        avg_test_huber = total_test_huber / test_batches if test_batches > 0 else 0
         avg_test_mse_node = total_test_mse_loss_node / test_batches if test_batches > 0 else 0 # Use correct accumulator
-        # avg_test_global_huber = total_test_global_huber / test_batches if test_batches > 0 else 0
-        # avg_test_global_mse = total_test_global_mse / test_batches if test_batches > 0 else 0
-        # test_loss_history.append(avg_test_huber)
-        test_loss_history.append(avg_test_mse_node)
+        avg_test_global_huber = total_test_global_huber / test_batches if test_batches > 0 else 0
+        avg_test_global_mse = total_test_global_mse / test_batches if test_batches > 0 else 0
+        test_loss_history.append(avg_test_huber)
 
     # Step the scheduler
     scheduler.step()
@@ -341,23 +318,13 @@ for epoch in range(start_epoch, NUM_EPOCHS):
 
     # Print epoch summary
     print(f"Epoch {epoch+1}/{NUM_EPOCHS}, LR: {current_lr:.6e}")
-    # print(f"  Train Huber Loss: {avg_train_huber:.6f} (Node MSE: {avg_train_mse_node:.6f}, Global Huber: {avg_train_global_huber:.6f}, Global MSE: {avg_train_global_mse:.6f})")
-    print(f"  Train MSE Loss (Node): {avg_train_mse_node:.6f}")
+    print(f"  Train Huber Loss: {avg_train_huber:.6f} (Node MSE: {avg_train_mse_node:.6f}, Global Huber: {avg_train_global_huber:.6f}, Global MSE: {avg_train_global_mse:.6f})")
     if test_loader:
-        # print(f"  Test Huber Loss:  {avg_test_huber:.6f} (Node MSE: {avg_test_mse_node:.6f}, Global Huber: {avg_test_global_huber:.6f}, Global MSE: {avg_test_global_mse:.6f})")
-        print(f"  Test MSE Loss (Node):  {avg_test_mse_node:.6f}")
+        print(f"  Test Huber Loss:  {avg_test_huber:.6f} (Node MSE: {avg_test_mse_node:.6f}, Global Huber: {avg_test_global_huber:.6f}, Global MSE: {avg_test_global_mse:.6f})")
 
     # Save best model based on training loss
-    # if avg_train_huber < best_train_loss:
-    #     best_train_loss = avg_train_huber
-    #     best_epoch = epoch + 1
-    #     # Save model state dict, handling DataParallel if necessary
-    #     model_state_dict = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
-    #     torch.save(model_state_dict, BEST_MODEL_PATH)
-    #     print(f"  New best model saved to {BEST_MODEL_PATH} (Epoch {best_epoch}, Loss: {best_train_loss:.6f})")
-
-    if avg_train_mse_node < best_train_loss:
-        best_train_loss = avg_train_mse_node
+    if avg_train_huber < best_train_loss:
+        best_train_loss = avg_train_huber
         best_epoch = epoch + 1
         # Save model state dict, handling DataParallel if necessary
         model_state_dict = model.module.state_dict() if isinstance(model, nn.DataParallel) else model.state_dict()
@@ -381,8 +348,8 @@ for epoch in range(start_epoch, NUM_EPOCHS):
                  'window_size': WINDOW_SIZE, 'hidden_dim': HIDDEN_DIM, 'mlp_layers': MLP_LAYERS,
                  'interaction_layers': INTERACTION_LAYERS, 'dropout_rate': DROPOUT_RATE,
                  'use_last_snapshot_global': USE_LAST_SNAPSHOT_GLOBAL, 'batch_size': BATCH_SIZE,
-                 # 'initial_lr': INITIAL_LR, 'final_lr': FINAL_LR, 'huber_beta': HUBER_BETA,
-                 # 'loss_alpha': LOSS_ALPHA, 'velocity_noise_std': VELOCITY_NOISE_STD
+                 'initial_lr': INITIAL_LR, 'final_lr': FINAL_LR, 'huber_beta': HUBER_BETA,
+                 'loss_alpha': LOSS_ALPHA, 'velocity_noise_std': VELOCITY_NOISE_STD
             }
         }, CHECKPOINT_PATH)
     except Exception as e:
