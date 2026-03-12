@@ -17,37 +17,12 @@ import os
 PARTICLE_FEATURE_DIM = 7 # velocities (3), sdf_value (1), sdf_gradient (3)
 WALL_FEATURE_PAD_DIM = 7 # Padded dimension for wall features per snapshot
 EPSILON = 1e-6 # For safe division during normalization
-# DESIRED_Y_SHIFT = 0.00192903 # Determined from COM method at rest to match STL with DEM simulation. Adapt to your case.
-
-# # --- Mesh Loading and Processing ---
-
-# def load_and_transform_mesh(stl_path = ["./data-drum/0-raw/drum_cylinder.stl", "./data-drum/0-raw/drum_walls.stl"]):
-#     """Loads, scales, and transforms the static mesh."""
-
-#     cylinder = trimesh.load(stl_path[0])
-#     walls = trimesh.load(stl_path[1])
-
-#     if isinstance(cylinder, trimesh.Trimesh) and isinstance(walls, trimesh.Trimesh):
-#         mesh_static = trimesh.util.concatenate([cylinder, walls])
-
-#     return mesh_static
 
 # --- SDF and Mesh Movement Functions ---
 
 def SDF_static(points, target_mesh):
     """Calculates signed distance from points to a static mesh."""
     return trimesh.proximity.signed_distance(target_mesh, points)
-
-# def SDF_normal_direct(point, target_mesh):
-#     """Calculates the surface normal at the closest point on the mesh."""
-#     closest, distance, face_index = target_mesh.nearest.on_surface(point.reshape(1, 3))
-#     normal = target_mesh.face_normals[face_index[0]]
-#     norm_val = np.linalg.norm(normal)
-#     if norm_val < EPSILON: # Use EPSILON for consistency
-#         return normal
-#     return normal / norm_val
-
-
 
 # --- Data Loading ---
 
@@ -64,6 +39,7 @@ def load_extracted_data(filepath="./data-drum/1-staging/extracted_data.pkl"):
 
 def build_sgn_features_window(window_snapshots, mass, use_last_snapshot_global=False):
     """Builds node and edge features for a window of snapshots."""
+
     # Build particle features.
     particle_features_list = []
     for snap in window_snapshots:
@@ -105,7 +81,7 @@ def build_sgn_features_window(window_snapshots, mass, use_last_snapshot_global=F
     wall_node_index = num_particles # Index of the single wall node
 
     # Global target from the last snapshot.
-    global_target = last_snap["energy_normal_increment"] + last_snap["energy_tangential_increment"]
+    global_target = last_snap["AOR"]
 
     # Node targets (Accelerations for particles, first 3 wall features for wall)
     # Ensure wall target has shape (1, 3)

@@ -3,6 +3,7 @@
 """
 Main training script for SGN using modularized data utilities and model definitions.
 """
+import os
 
 import pickle
 import numpy as np
@@ -23,7 +24,7 @@ import models
 # --- Configuration --- #
 #######################
 # Data parameters
-DATA_FILE = "./data-drum/1-staging/extracted_data.pkl"
+DATA_FILE = "./data-drum/1-staging/extracted_data_trimmed.npz"
 STL_FILE = "./data-drum/0-raw/merged_meshes.stl"
 NORM_PARAMS_FILE = "./data-drum/2-pre-process/normalization_params.pkl"
 LOSS_HISTORY_FILE = "loss_history_modular.pkl"
@@ -31,10 +32,10 @@ CHECKPOINT_PATH = "sgn_checkpoint_modular.pth"
 BEST_MODEL_PATH = "best_model_modular.pth"
 
 # Model hyperparameters
-WINDOW_SIZE = 10
+WINDOW_SIZE = 4
 HIDDEN_DIM = 64
 MLP_LAYERS = 3
-INTERACTION_LAYERS = 8
+INTERACTION_LAYERS = 6
 NODE_OUT_DIM = 3
 GLOBAL_OUT_DIM = 1
 EDGE_IN_DIM = 3 # Based on distance_vector and sdf_distance_vectors being 3D
@@ -43,7 +44,7 @@ DROPOUT_RATE = 0.0
 USE_LAST_SNAPSHOT_GLOBAL = False
 
 # Training parameters
-NUM_TRAIN_SAMPLES = 4000
+NUM_TRAIN_SAMPLES = 3000
 BATCH_SIZE = 2
 NUM_EPOCHS = 200
 INITIAL_LR = 1e-4
@@ -63,7 +64,13 @@ PARTICLE_FEATURE_DIM = data_utils.PARTICLE_FEATURE_DIM # Get from data_utils
 
 # Load raw data
 try:
-    extracted_data = data_utils.load_extracted_data(DATA_FILE)
+    if not os.path.exists(DATA_FILE):
+        raise FileNotFoundError(f"Extracted data file not found at: {DATA_FILE}")
+    # load data from .npz file
+    with np.load(DATA_FILE, allow_pickle=True) as data:
+        extracted_data = data['data']
+
+    print(f"Loaded extracted data for {len(extracted_data)} snapshots from {DATA_FILE}.")
 except FileNotFoundError as e:
     print(f"Error: {e}")
     exit()
