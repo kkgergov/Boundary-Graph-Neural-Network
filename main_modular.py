@@ -12,8 +12,8 @@ from torch_geometric.loader import DataLoader
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import os
-import torch.optim as optim
-import torch.optim.lr_scheduler as lr_scheduler
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR
+from torch.optim import AdamW
 import torch.nn.functional as F
 
 # Import from custom modules
@@ -44,9 +44,9 @@ DROPOUT_RATE = 0.0
 USE_LAST_SNAPSHOT_GLOBAL = False
 
 # Training parameters
-NUM_TRAIN_SAMPLES = 3000
+NUM_TRAIN_SAMPLES = 5500
 BATCH_SIZE = 2
-NUM_EPOCHS = 200
+NUM_EPOCHS = 500
 INITIAL_LR = 1e-4
 FINAL_LR = 1e-6
 HUBER_BETA = 2.0
@@ -156,14 +156,33 @@ if torch.cuda.device_count() > 1:
 # Loss function
 huber_loss = nn.SmoothL1Loss(beta=HUBER_BETA)
 
+total_epochs = NUM_EPOCHS
+warmup_epochs = 5
+
 # Optimizer and Scheduler
-optimizer = optim.Adam(model.parameters(), lr=INITIAL_LR)
-# Calculate gamma for exponential decay
-if NUM_EPOCHS > 0:
-    gamma = (FINAL_LR / INITIAL_LR) ** (1 / NUM_EPOCHS)
-else:
-    gamma = 1.0 # No decay if 0 epochs
-scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
+optimizer = AdamW(model.parameters(), lr=INITIAL_LR, weight_decay=0.01)
+
+# 1. The Warmup Scheduler: Increases LR from 0 to 1 (factor) over warmup_epochs
+warmup_scheduler = LinearLR(
+    optimizer,
+    start_factor=0.01,  # Start at 1% of the base LR (i.e., 1e-5)
+    end_factor=1.0,     # End at 100% of the base LR (i.e., 1e-3)
+    total_iters=warmup_epochs
+)
+
+# 2. The Cosine Scheduler: Decreases LR from base_lr to ~0 over the remaining epochs
+cosine_scheduler = CosineAnnealingLR(
+    optimizer,
+    T_max=total_epochs - warmup_epochs,  # Number of epochs for cosine decay
+    eta_min=1e-7                          # Minimum LR (can be very small)
+)
+
+# Combine them using SequentialLR (PyTorch 1.10+)
+scheduler = torch.optim.lr_scheduler.SequentialLR(
+    optimizer,
+    schedulers=[warmup_scheduler, cosine_scheduler],
+    milestones=[warmup_epochs]  # Switch after warmup_epochs
+)
 
 # Training state variables
 train_loss_history = []

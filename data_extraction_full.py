@@ -108,7 +108,7 @@ def get_rotated_mesh(timestep_index, timestep_size = 0.001, rad_s = 3.1415926535
 # Load deck simulation files
 deck = RockyDeck("./data-drum/0-raw/contacts.npz", "./data-drum/0-raw/particles.npz")
 
-start_timestep = 1000
+start_timestep = 0
 last_timestep  = deck.n_timesteps - 1
 
 ###############################################

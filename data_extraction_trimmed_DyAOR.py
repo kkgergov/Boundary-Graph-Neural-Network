@@ -60,7 +60,7 @@ with open("./data-drum/1-staging/extracted_data.pkl", "rb") as f:
     extracted_data = pickle.load(f)
 
 # Trim the number of timesteps to 1000
-extracted_data = extracted_data[:4000]
+extracted_data = extracted_data[:5998]
 
 trimmed_data = []
 for snapshot_full in extracted_data:
