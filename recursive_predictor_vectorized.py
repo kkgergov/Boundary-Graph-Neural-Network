@@ -96,6 +96,9 @@ try:
     # load data from .npz file
     with np.load(DATA_FILE, allow_pickle=True) as data:
         extracted_data = data['data']
+    
+    # remove first 1000 snapshots from extracted_data
+    extracted_data = extracted_data[1000:]
 
     print(f"Loaded extracted data for {len(extracted_data)} snapshots from {DATA_FILE}.")
 except FileNotFoundError as e:
@@ -358,7 +361,7 @@ def main_simulation_loop(): # Use fallback_com from pre-calculation
     if len(extracted_data) < WINDOW_SIZE:
         print(f"Error: Need at least {WINDOW_SIZE} snapshots in {DATA_FILE} for initialization.")
         return None
-
+    
     window = [snap.copy() for snap in extracted_data[:WINDOW_SIZE]]
     current_time = window[-1]["time"]
     current_timestep = window[-1]["timestep"]
